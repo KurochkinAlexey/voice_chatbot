@@ -1,6 +1,5 @@
 fastapi
---index-url https://download.pytorch.org/whl/cu122
-torch==2.6.0
+torch
 faster_whisper
 langchain
 langchain_community
