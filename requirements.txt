@@ -5,10 +5,9 @@ langchain
 langchain_community
 langchain_core
 langchain_ollama
-librosa
-numpy
-pandas
-soundfile
-TTS
-uvicorn
-
+librosa==0.11.0
+numpy==2.2.5
+pandas==1.5.3
+soundfile==0.13.1
+TTS==0.22.0
+uvicorn==0.34.2
