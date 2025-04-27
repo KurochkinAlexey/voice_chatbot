@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice Assistant</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    #timer {
+      padding: 15px;
+      background: #2c3e50;
+      color: white;
+      text-align: center;
+      font-size: 1.2em;
+    }
+    #recordButton {
+      width: 100%;
+      padding: 15px;
+      background: #e74c3c;
+      color: white;
+      border: none;
+      font-size: 1.2em;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    #recordButton:hover {
+      background: #c0392b;
+    }
+    #chatWindow {
+      height: 500px;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .message {
+      margin-bottom: 15px;
+      max-width: 70%;
+      padding: 10px 15px;
+      border-radius: 18px;
+      line-height: 1.4;
+      position: relative;
+    }
+    .user-message {
+      background: #007bff;
+      color: white;
+      margin-left: auto;
+      border-bottom-right-radius: 5px;
+    }
+    .assistant-message {
+      background: #f1f1f1;
+      margin-right: auto;
+      border-bottom-left-radius: 5px;
+    }
+    .message-time {
+      font-size: 0.7em;
+      opacity: 0.7;
+      margin-top: 5px;
+      display: block;
+    }
+    .audio-container {
+      display: flex;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .play-button {
+      background: #2ecc71;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      margin-right: 10px;
+      transition: background 0.2s;
+    }
+    .play-button:hover {
+      background: #27ae60;
+    }
+    .play-button.playing {
+      background: #e74c3c;
+    }
+    .progress-container {
+      flex-grow: 1;
+      height: 4px;
+      background: #ddd;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #2ecc71;
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="timer">Recording Time: 0:00</div>
+    <button id="recordButton">Start Recording</button>
+    <div id="chatWindow"></div>
+  </div>
+
+  <script>
+    let recording = false;
+    let audioContext;
+    let mediaStream, processor, socket;
+    let startTime, timerInterval;
+    const audioBufferSize = 2048;
+    const chatWindow = document.getElementById('chatWindow');
+    
+    // Audio playback state
+    let currentAudioSource = null;
+    let currentPlaybackProgress = null;
+
+    const timerDisplay = document.getElementById('timer');
+    const button = document.getElementById('recordButton');
+
+    function initAudioContext() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function updateTimer() {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      timerDisplay.textContent = `Recording Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    function formatTime() {
+      const now = new Date();
+      return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function decodeBase64Audio(base64Data) {
+      try {
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return await audioContext.decodeAudioData(bytes.buffer);
+      } catch (error) {
+        console.error("Audio decoding failed:", error);
+        return null;
+      }
+    }
+
+    function stopCurrentPlayback() {
+      if (currentAudioSource) {
+        currentAudioSource.stop();
+        currentAudioSource = null;
+      }
+      if (currentPlaybackProgress) {
+        cancelAnimationFrame(currentPlaybackProgress);
+        currentPlaybackProgress = null;
+      }
+    }
+
+    function createAudioPlayer(messageId, base64Audio) {
+      const audioContainer = document.createElement('div');
+      audioContainer.className = 'audio-container';
+      
+      const playButton = document.createElement('button');
+      playButton.className = 'play-button';
+      playButton.innerHTML = '▶';
+      
+      const progressContainer = document.createElement('div');
+      progressContainer.className = 'progress-container';
+      
+      const progressBar = document.createElement('div');
+      progressBar.className = 'progress-bar';
+      
+      progressContainer.appendChild(progressBar);
+      audioContainer.appendChild(playButton);
+      audioContainer.appendChild(progressContainer);
+
+      decodeBase64Audio(base64Audio).then(audioBuffer => {
+        playButton.addEventListener('click', async () => {
+          initAudioContext();
+          
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+          }
+
+          stopCurrentPlayback();
+
+          if (playButton.classList.contains('playing')) {
+            playButton.classList.remove('playing');
+            playButton.innerHTML = '▶';
+            progressBar.style.width = '0%';
+          } else {
+            currentAudioSource = audioContext.createBufferSource();
+            currentAudioSource.buffer = audioBuffer;
+            currentAudioSource.connect(audioContext.destination);
+            
+            const startTime = audioContext.currentTime;
+            currentAudioSource.start();
+            
+            playButton.classList.add('playing');
+            playButton.innerHTML = '⏸';
+            
+            const updateProgress = () => {
+              const elapsed = audioContext.currentTime - startTime;
+              const progress = Math.min(100, (elapsed / audioBuffer.duration) * 100);
+              progressBar.style.width = `${progress}%`;
+              
+              if (progress < 100) {
+                currentPlaybackProgress = requestAnimationFrame(updateProgress);
+              } else {
+                playButton.classList.remove('playing');
+                playButton.innerHTML = '▶';
+                progressBar.style.width = '0%';
+              }
+            };
+            
+            updateProgress();
+            
+            currentAudioSource.onended = () => {
+              playButton.classList.remove('playing');
+              playButton.innerHTML = '▶';
+              progressBar.style.width = '0%';
+              currentAudioSource = null;
+              cancelAnimationFrame(currentPlaybackProgress);
+            };
+          }
+        });
+      });
+      
+      return audioContainer;
+    }
+
+    function addMessage(text, isUser, base64Audio = null) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
+      
+      messageDiv.innerHTML = `
+        ${text}
+        <span class="message-time">${formatTime()}</span>
+      `;
+      
+      if (base64Audio && !isUser) {
+        const audioContainer = createAudioPlayer(Date.now(), base64Audio);
+        messageDiv.appendChild(audioContainer);
+      }
+      
+      chatWindow.appendChild(messageDiv);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    async function startRecording() {
+      try {
+        initAudioContext();
+        mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            sampleRate: 48000,
+            channelCount: 1,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+        
+        const source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(audioBufferSize, 1, 1);
+        
+        processor.onaudioprocess = (e) => {
+          if (!recording) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          const pcmData = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+          }
+          if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(pcmData.buffer);
+          }
+        };
+        
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        socket = new WebSocket(`ws://${window.location.host}/ws/audio`);
+        
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'question') {
+                    addMessage(data.text, true);
+                } else if (data.type === 'response') {
+                    addMessage(data.text, false, data.audio);
+                } else if (data.type === 'command' && data.action === 'stop_playback') {
+                    stopCurrentPlayback();
+                }
+            } catch (e) {
+                console.error("Error handling message:", e);
+            }
+        };
+
+        startTime = Date.now();
+        timerInterval = setInterval(updateTimer, 1000);
+        button.textContent = "Stop Recording";
+        button.style.background = "#2ecc71";
+        recording = true;
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        alert("Error starting recording: " + error.message);
+      }
+    }
+      
+    function stopCurrentPlayback() {
+        if (currentAudioSource) {
+            currentAudioSource.stop();
+            currentAudioSource = null;
+        }
+        if (currentPlaybackProgress) {
+            cancelAnimationFrame(currentPlaybackProgress);
+            currentPlaybackProgress = null;
+        }
+        // Reset play buttons and progress bars
+        document.querySelectorAll('.play-button.playing').forEach(button => {
+            button.classList.remove('playing');
+            button.innerHTML = '▶';
+        });
+        document.querySelectorAll('.progress-bar').forEach(progressBar => {
+            progressBar.style.width = '0%';
+        });
+    }
+
+    function stopRecording() {
+      stopCurrentPlayback();
+      if (processor) processor.disconnect();
+      if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
+      if (socket) socket.close();
+      clearInterval(timerInterval);
+      timerDisplay.textContent = 'Recording Time: 0:00';
+      button.textContent = "Start Recording";
+      button.style.background = "#e74c3c";
+      recording = false;
+    }
+
+    button.addEventListener("click", () => {
+      if (!recording) startRecording();
+      else stopRecording();
+    });
+  </script>
+</body>
+</html>

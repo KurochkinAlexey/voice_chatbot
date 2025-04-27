@@ -1,1 +1,3 @@
-# voice_chatbot
+# Voice chatbot
+
+uvicorn main:app
