@@ -8,3 +8,4 @@
 5) sh run_docker.sh
 
 ### Application will be available via localhost:8000/
+#### If running application in Windows WSL, consider using  dos2unix instead of sh command for executing bash scripts (e.g. dos2unix build_docker.sh instead of sh build_docker.sh)
