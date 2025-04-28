@@ -31,6 +31,7 @@ SAMPLES_PER_CHUNK = (SAMPLE_RATE * CHUNK_SIZE_MS) // 1000
 BYTES_PER_CHUNK = SAMPLES_PER_CHUNK * 4  
 MAX_SPEECH_SECONDS = 30
 MAX_SPEECH_BYTES = SAMPLE_RATE * MAX_SPEECH_SECONDS * 4
+ENERGY_T = 0.004
 
 vad_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad')
 asr_model = FasterWhisperASR()
@@ -138,8 +139,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     del raw_audio_buffer[:BYTES_PER_CHUNK]
                     
                     # check if there is voice in audio chunk
-                    np_array = np.frombuffer(chunk, dtype=np.float32)
-                    vad(np_array)
+                    np_chunk = np.frombuffer(chunk, dtype=np.float32)
+                    vad(np_chunk)
                     
                     # process speech start/end 
                     current_triggered = vad.triggered
@@ -155,6 +156,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     if was_triggered:
                         # if speech was detected, start accumulate data
+                        
                         remaining_space = MAX_SPEECH_BYTES - len(speech_buffer)
                         if remaining_space >= len(chunk):
                             speech_buffer.extend(chunk)
@@ -172,6 +174,13 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Copy current speech buffer, transform speech to text
                             current_speech_bytes = bytes(speech_buffer)
                             speech = np.frombuffer(current_speech_bytes, dtype=np.float32)
+                            logger.debug('Energy: {}'.format(np.mean(np.abs(speech))))
+                            if np.mean(np.abs(speech)) < ENERGY_T:
+                                #possibly synthetic speech, ignore
+                                speech_buffer.clear()
+                                vad.reset_states()
+                                continue
+                                
                             tokens = asr_model.transcribe(speech)                        
                             question = "".join([t.text for t in tokens])
                             logger.info('STT result: {}'.format(question))
@@ -232,4 +241,3 @@ async def websocket_endpoint(websocket: WebSocket):
         await process.wait()
         
              
-        

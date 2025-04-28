@@ -29,12 +29,20 @@ class TextRouterParser(RouterOutputParser):
 
 class LLMChat:
     def __init__(self, db_name='medical.db', llm_type='qwen2.5:7b', sql_verbose=True, sql_tool_type='openai-tools'):
+        """
+        LLM for general conversations and generating SQL queries in case if user's question is related to medical domain.
+        If database doesn't exist, new instance is generated using random mock data
+        """
         
+        #load database 
         db = self.init_db(db_name)
+        #init LLM
         llm = ChatOllama(model=llm_type)
         
+        #create SQL agent 
         sql_toolkit = SQLDatabaseToolkit(db=db, llm=llm)
         sql_agent = create_sql_agent(llm, sql_toolkit, agent_type=sql_tool_type, verbose=sql_verbose)
+        #create general conversation pipeline
         general_prompt = PromptTemplate(
         template="""You are a helpful, friendly assistant for general conversation. \
                 Respond to the user in a natural, conversational tone. \
@@ -55,9 +63,10 @@ class LLMChat:
         general_chain = ConversationChain(
             llm=llm,
             prompt=general_prompt,
-            memory=ConversationBufferMemory()  # Optional but useful for chat history
+            memory=ConversationBufferMemory()  
         )
         
+        #Create router which chooses pipeline to apply for answering user question
         destinations = ["medical", "general"]
 
         router_template = """Given the user query, route it to either the 'medical' or 'general' chain.
@@ -82,7 +91,7 @@ class LLMChat:
         router_prompt = PromptTemplate(
             template=router_template,
             input_variables=["input"],
-            output_parser=TextRouterParser(),  # Use our custom parser
+            output_parser=TextRouterParser(), #use parser to reroute user's question
         )
         
         router_chain = LLMRouterChain.from_llm(
@@ -98,7 +107,7 @@ class LLMChat:
         self.multi_route_chain = MultiRouteChain(
             router_chain=router_chain,
             destination_chains=route_chains,
-            default_chain=general_chain  # Fallback to general chat
+            default_chain=general_chain  
         )
         
 

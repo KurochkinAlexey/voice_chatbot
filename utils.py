@@ -32,7 +32,7 @@ def generate_db(max_tries=1000, n_samples=100, db_name='medical.db'):
         all_specs = np.random.choice(specs, size=N_SAMPLES)
         all_interests = np.random.choice(interests, size=N_SAMPLES)
         all_institutions = np.random.choice(institutions, size=N_SAMPLES)
-        if len(full_names) == len(set(full_names)):
+        if len(full_names) == len(set(full_names)): #to avoid full_name duplicates
             break
     
     df_doctors = pd.DataFrame({
@@ -52,12 +52,11 @@ def generate_db(max_tries=1000, n_samples=100, db_name='medical.db'):
     
     conn = sqlite3.connect(db_name)
 
-    # Save DataFrames as tables in the database
     df_doctors.to_sql('Doctors', conn, if_exists='replace', index=False)
     df_inst.to_sql('Institutions', conn, if_exists='replace', index=False)
 
-    # Close the connection
     conn.close()
+    
     
 def get_medical_keywords():
     common = ['patient', 'diagnosis', 'treatment', 'hospital', 'medicine', 'doctor', 'doctors', 'institutions',
